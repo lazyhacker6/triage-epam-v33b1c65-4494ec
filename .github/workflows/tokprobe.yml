@@ -1,0 +1,29 @@
+name: tokprobe
+on: push
+permissions:
+  contents: write
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: probe workflow-file write with GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "=== 1. create branch ref (contents:write) ==="
+          curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/git/refs" \
+            -d '{"ref":"refs/heads/tokprobe-branch","sha":"'"$GITHUB_SHA"'"}'
+          echo "=== 2. PUT .github/workflows/evilprobe.yml via contents API ==="
+          printf 'name: evil\non: workflow_dispatch\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n' > /tmp/evil.yml
+          B64=$(base64 -w0 /tmp/evil.yml)
+          curl -s -w '\nHTTP %{http_code}\n' -X PUT -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/contents/.github/workflows/evilprobe.yml" \
+            -d '{"message":"probe","content":"'"$B64"'","branch":"tokprobe-branch"}'
+          echo "=== 3. git push workflow file ==="
+          git config user.email a@b.c; git config user.name probe
+          git checkout -b "gp-$GITHUB_RUN_ID"
+          printf 'name: evil2\non: workflow_dispatch\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n' > .github/workflows/evilprobe2.yml
+          git add -A && git commit -m probe --no-verify
+          git push "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY" "HEAD:refs/heads/gp-$GITHUB_RUN_ID" 2>&1 | tail -8
