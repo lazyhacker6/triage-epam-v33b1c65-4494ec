@@ -1,0 +1,20 @@
+name: perm-probe
+on: workflow_dispatch
+permissions:
+  actions: read
+  contents: write
+  pull-requests: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe token permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}" | jq '.permissions'
+          echo "--- snapshot POST (403=no write, 422/404=write ok)"
+          curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/dependency-graph/snapshots" -d '{"version":0,"sha":"0000000000000000000000000000000000000000","ref":"refs/heads/nope","job":{"correlator":"probe"},"detector":{"name":"probe","version":"1.0.0","url":"https://example.com"},"manifests":{}}'
+          echo "--- create ref"
+          curl -s -w '\nHTTP %{http_code}\n' -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${{ github.repository }}/git/refs" -d '{"ref":"refs/heads/perm-probe-test","sha":"'"$GITHUB_SHA"'"}'
