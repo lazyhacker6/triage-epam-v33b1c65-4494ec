@@ -1,0 +1,8 @@
+{
+  "path": "/api/v1/test-suites/550e8400-e29b-41d4-a716-446655440000/runs/import",
+  "method": "POST",
+  "status": 409,
+  "code": "SUITE_HAS_NO_DATASET",
+  "error": "Conflict",
+  "message": "Cannot import eval results: test suite 550e8400-e29b-41d4-a716-446655440000 is not bound to a dataset (datasetId is null)."
+}
